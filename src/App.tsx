@@ -52,6 +52,10 @@ function App() {
     setCurrentThreadId(threadId);
   };
 
+  const handleNavigateToHome = () => {
+    setCurrentThreadId(null);
+  };
+
   const handleThreadCreated = (threadId: string) => {
     setCurrentThreadId(threadId);
     // Trigger a refresh of the thread list by reloading the sidebar
@@ -85,8 +89,8 @@ function App() {
         <ThreadSidebar
           currentThreadId={currentThreadId}
           onThreadSelect={handleThreadSelect}
-          onThreadCreate={handleCreateThread}
           onThreadDeleted={handleThreadDeleted}
+          onNavigateToHome={handleNavigateToHome}
         />
         <ChatInterface
           threadId={currentThreadId}

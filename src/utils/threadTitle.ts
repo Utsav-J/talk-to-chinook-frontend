@@ -1,31 +1,28 @@
 import type { Message } from '../types/api';
 
 /**
- * Generate a thread title from the first two user messages
- * Converts to title case and concatenates with " - "
+ * Generate a thread title from the first user message
+ * Converts to title case
  */
 export function generateThreadTitle(messages: Message[]): string | null {
-  // Get user messages only
-  const userMessages = messages
-    .filter(msg => msg.role === 'user' && msg.content && msg.content.trim().length > 0)
-    .slice(0, 2); // Take first two
+  // Get the first user message
+  const firstUserMessage = messages.find(
+    msg => msg.role === 'user' && msg.content && msg.content.trim().length > 0
+  );
 
-  if (userMessages.length === 0) {
+  if (!firstUserMessage) {
     return null;
   }
 
   // Extract content and clean it
-  const titles = userMessages.map(msg => {
-    let text = msg.content.trim();
-    // Truncate if too long (max 50 chars per message)
-    if (text.length > 50) {
-      text = text.substring(0, 47) + '...';
-    }
-    return toTitleCase(text);
-  });
-
-  // Concatenate with " - "
-  return titles.join(' - ');
+  let text = firstUserMessage.content.trim();
+  // Truncate if too long (max 80 chars for single message title)
+  if (text.length > 80) {
+    text = text.substring(0, 77) + '...';
+  }
+  
+  // Convert to title case and return
+  return toTitleCase(text);
 }
 
 /**

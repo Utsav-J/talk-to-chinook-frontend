@@ -35,7 +35,7 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   const [loading, setLoading] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -126,8 +126,16 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     }
   };
 
-  const sendMessage = async (message: string) => {
+  const sendMessage = async (message: string, overrideThreadId?: string) => {
     if (!message.trim() || loading) return;
+
+    // Use override threadId if provided, otherwise use component's threadId
+    let finalThreadId = overrideThreadId || threadId;
+
+    // This should not happen if called from handleSubmit, but keep as safeguard
+    if (!finalThreadId) {
+      throw new Error('Thread ID is required to send a message');
+    }
 
     const userMessage: Message = {
       id: null,
@@ -138,29 +146,17 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
     setMessages(prev => [...prev, userMessage]);
     // Save user message to localStorage
-    if (threadId) {
-      storage.addMessage(threadId, userMessage);
-      // Update thread title after adding user message
-      const allMessages = storage.getMessages(threadId);
-      updateThreadTitle(threadId, allMessages);
-    }
+    storage.addMessage(finalThreadId, userMessage);
+    // Update thread title after adding user message
+    const allMessages = storage.getMessages(finalThreadId);
+    updateThreadTitle(finalThreadId, allMessages);
     
     setInput('');
     setLoading(true);
 
     try {
-      const response = await api.sendMessage(message.trim(), threadId || undefined);
-      
-      const finalThreadId = threadId || response.thread_id;
-      
-      if (!threadId) {
-        onThreadCreated(response.thread_id);
-        // Save user message for new thread
-        storage.addMessage(finalThreadId, userMessage);
-        // Update thread title for new thread
-        const allMessages = storage.getMessages(finalThreadId);
-        updateThreadTitle(finalThreadId, allMessages);
-      }
+      // Now send the message with the thread_id
+      const response = await api.sendMessage(message.trim(), finalThreadId);
 
       const assistantMessage: Message = {
         id: response.message_id,
@@ -171,27 +167,27 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
       // Only add assistant message if it has content
       if (assistantMessage.content && assistantMessage.content.trim().length > 0) {
-      setMessages(prev => [...prev, assistantMessage]);
-      // Save assistant message to localStorage
-      storage.addMessage(finalThreadId, assistantMessage);
-      
-      // Update thread title after adding messages
-      const allMessages = storage.getMessages(finalThreadId);
-      updateThreadTitle(finalThreadId, allMessages);
+        setMessages(prev => [...prev, assistantMessage]);
+        // Save assistant message to localStorage
+        storage.addMessage(finalThreadId, assistantMessage);
+        
+        // Update thread title after adding messages
+        const allMessages = storage.getMessages(finalThreadId);
+        updateThreadTitle(finalThreadId, allMessages);
       }
     } catch (err) {
       // Remove the user message if sending failed
       setMessages(prev => {
         const updated = prev.slice(0, -1);
         // Also remove from localStorage
-        if (threadId) {
-          const messages = storage.getMessages(threadId);
+        if (finalThreadId) {
+          const messages = storage.getMessages(finalThreadId);
           const filtered = messages.filter(m => 
             !(m.content === userMessage.content && 
               m.role === userMessage.role && 
               m.timestamp === userMessage.timestamp)
           );
-          storage.saveMessages(threadId, filtered);
+          storage.saveMessages(finalThreadId, filtered);
         }
         return updated;
       });
@@ -209,8 +205,37 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!input.trim() || loading) return;
+    
+    const messageText = input.trim();
+    let threadIdToUse = threadId;
+    
+    // If no threadId, create thread first and immediately navigate to chat view
+    if (!threadIdToUse) {
+      try {
+        setLoading(true);
+        const newThread = await api.createThread();
+        threadIdToUse = newThread.thread_id;
+        // Save thread to localStorage
+        storage.addOrUpdateThread(newThread);
+        // Immediately notify parent to switch to chat view
+        // This will cause a re-render with the new threadId
+        onThreadCreated(threadIdToUse);
+        // Small delay to allow the re-render to complete before adding messages
+        await new Promise(resolve => setTimeout(resolve, 0));
+      } catch (err) {
+        setLoading(false);
+        const errorMessage = err instanceof ApiError 
+          ? (err.detail || 'Failed to create thread')
+          : 'Failed to create thread. Please try again.';
+        onError?.(errorMessage);
+        return;
+      }
+    }
+    
     try {
-      await sendMessage(input);
+      // sendMessage will add the user message and send to backend
+      await sendMessage(messageText, threadIdToUse);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message. Please try again.';
       onError?.(errorMessage);
@@ -233,10 +258,91 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   if (!threadId) {
     return (
       <div className="chat-interface empty-state">
-        <div className="empty-chat">
-          <h2>Welcome to Chinook Data Speech Agent</h2>
-          <p>Start a new conversation to begin chatting with the agent.</p>
-          <p className="hint">The agent can help you query the Chinook database. First, tell it your name!</p>
+        <div className="welcome-container">
+          <div className="welcome-header">
+            <h1 className="welcome-title">
+              Hello <span className="gradient-text">there!</span>
+            </h1>
+            <p className="welcome-subtitle">How can I help you today?</p>
+          </div>
+
+          <div className="feature-cards">
+            <div className="feature-card">
+              <div className="feature-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+              </div>
+              <h3 className="feature-title">Query Database</h3>
+              <p className="feature-description">Ask questions about albums, artists, customers, and sales data</p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 3h7v7H3z"/>
+                  <path d="M14 3h7v7h-7z"/>
+                  <path d="M14 14h7v7h-7z"/>
+                  <path d="M3 14h7v7H3z"/>
+                </svg>
+              </div>
+              <h3 className="feature-title">Sales Analytics</h3>
+              <p className="feature-description">Get insights into sales trends and customer purchases</p>
+            </div>
+
+            <div className="feature-card">
+              <div className="feature-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <path d="M14 2v6h6"/>
+                  <path d="M16 13H8"/>
+                  <path d="M16 17H8"/>
+                  <path d="M10 9H8"/>
+                </svg>
+              </div>
+              <h3 className="feature-title">Data Insights</h3>
+              <p className="feature-description">Explore tracks, playlists, and comprehensive data analysis</p>
+            </div>
+          </div>
+
+          <div className="welcome-input-container">
+            <form className="welcome-input-form" onSubmit={handleSubmit}>
+              <input
+                ref={inputRef as React.RefObject<HTMLInputElement>}
+                type="text"
+                className="welcome-input"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+                placeholder="Ask something..."
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                className="welcome-send-button"
+                disabled={loading || !input.trim()}
+                aria-label="Send message"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     );
