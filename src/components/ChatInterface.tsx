@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import type { Message } from '../types/api';
 import { api, ApiError } from '../services/api';
+import { storage } from '../services/storage';
+import { generateThreadTitle } from '../utils/threadTitle';
 import './ChatInterface.css';
 
 interface ChatInterfaceProps {
@@ -8,6 +11,23 @@ interface ChatInterfaceProps {
   onThreadCreated: (threadId: string) => void;
   onError?: (error: string) => void;
 }
+
+// Filter messages to only show user messages and assistant messages with content
+// Hide tool messages and empty assistant messages
+const filterMessages = (messages: Message[]): Message[] => {
+  return messages.filter(msg => {
+    // Always show user messages
+    if (msg.role === 'user') {
+      return true;
+    }
+    // Only show assistant messages with non-empty content
+    if (msg.role === 'assistant') {
+      return msg.content && msg.content.trim().length > 0;
+    }
+    // Hide tool messages and other roles
+    return false;
+  });
+};
 
 export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -21,12 +41,42 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const updateThreadTitle = (tid: string, allMessages: Message[]) => {
+    const title = generateThreadTitle(allMessages);
+    if (title) {
+      // Get current thread info
+      const thread = storage.getThread(tid);
+      if (thread) {
+        // Update thread title
+        const updatedThread = {
+          ...thread,
+          title,
+        };
+        storage.addOrUpdateThread(updatedThread);
+        // Trigger thread list refresh
+        window.dispatchEvent(new Event('threadUpdated'));
+      } else {
+        // Thread might not be in cache yet, try to get from API
+        // For now, just save with the title we generated
+        // The thread will be synced when the list refreshes
+      }
+    }
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
   useEffect(() => {
     if (threadId) {
+      // Load from cache first for instant display
+      const cachedMessages = storage.getMessages(threadId);
+      if (cachedMessages.length > 0) {
+        setMessages(filterMessages(cachedMessages));
+        // Update title from cached messages too
+        updateThreadTitle(threadId, cachedMessages);
+      }
+      // Then sync with API
       loadMessages(threadId);
     } else {
       setMessages([]);
@@ -37,16 +87,39 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     setLoadingMessages(true);
     try {
       const data = await api.getMessages(tid, 200, 0);
-      setMessages(data.messages);
+      const filtered = filterMessages(data.messages);
+      setMessages(filtered);
+      // Save to localStorage (save all messages, but display filtered)
+      storage.saveMessages(tid, data.messages);
+      // Update thread title based on messages
+      updateThreadTitle(tid, data.messages);
     } catch (err) {
       if (err instanceof ApiError) {
         const errorMsg = `Failed to load messages: ${err.detail}`;
         console.error(errorMsg);
-        onError?.(errorMsg);
+        // If API fails, try to use cached messages if we don't have any
+        const cachedMessages = storage.getMessages(tid);
+        if (cachedMessages.length > 0) {
+          // Only show error if we don't have cached messages to fall back to
+          if (messages.length === 0) {
+            setMessages(filterMessages(cachedMessages));
+          }
+          // Still show error but don't block UI
+          onError?.(`${errorMsg} (showing cached messages)`);
+        } else {
+          onError?.(errorMsg);
+        }
       } else {
         const errorMsg = 'Failed to load messages. Please try again.';
         console.error(errorMsg);
-        onError?.(errorMsg);
+        // Fallback to cache if available
+        const cachedMessages = storage.getMessages(tid);
+        if (cachedMessages.length > 0 && messages.length === 0) {
+          setMessages(filterMessages(cachedMessages));
+          onError?.('Network error. Showing cached messages.');
+        } else {
+          onError?.(errorMsg);
+        }
       }
     } finally {
       setLoadingMessages(false);
@@ -64,14 +137,29 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     };
 
     setMessages(prev => [...prev, userMessage]);
+    // Save user message to localStorage
+    if (threadId) {
+      storage.addMessage(threadId, userMessage);
+      // Update thread title after adding user message
+      const allMessages = storage.getMessages(threadId);
+      updateThreadTitle(threadId, allMessages);
+    }
+    
     setInput('');
     setLoading(true);
 
     try {
       const response = await api.sendMessage(message.trim(), threadId || undefined);
       
+      const finalThreadId = threadId || response.thread_id;
+      
       if (!threadId) {
         onThreadCreated(response.thread_id);
+        // Save user message for new thread
+        storage.addMessage(finalThreadId, userMessage);
+        // Update thread title for new thread
+        const allMessages = storage.getMessages(finalThreadId);
+        updateThreadTitle(finalThreadId, allMessages);
       }
 
       const assistantMessage: Message = {
@@ -81,10 +169,32 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         timestamp: response.timestamp,
       };
 
+      // Only add assistant message if it has content
+      if (assistantMessage.content && assistantMessage.content.trim().length > 0) {
       setMessages(prev => [...prev, assistantMessage]);
+      // Save assistant message to localStorage
+      storage.addMessage(finalThreadId, assistantMessage);
+      
+      // Update thread title after adding messages
+      const allMessages = storage.getMessages(finalThreadId);
+      updateThreadTitle(finalThreadId, allMessages);
+      }
     } catch (err) {
       // Remove the user message if sending failed
-      setMessages(prev => prev.slice(0, -1));
+      setMessages(prev => {
+        const updated = prev.slice(0, -1);
+        // Also remove from localStorage
+        if (threadId) {
+          const messages = storage.getMessages(threadId);
+          const filtered = messages.filter(m => 
+            !(m.content === userMessage.content && 
+              m.role === userMessage.role && 
+              m.timestamp === userMessage.timestamp)
+          );
+          storage.saveMessages(threadId, filtered);
+        }
+        return updated;
+      });
       
       if (err instanceof ApiError) {
         throw new Error(err.detail || 'Failed to send message');
@@ -145,8 +255,21 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         <div className="messages">
           {messages.map((msg, idx) => (
             <div key={msg.id || idx} className={`message ${msg.role}`}>
+              {msg.role === 'assistant' && (
+                <img 
+                  src="/ai-icon.png" 
+                  alt="AI Assistant" 
+                  className="message-avatar" 
+                />
+              )}
               <div className="message-content">
-                <div className="message-text">{msg.content}</div>
+                <div className="message-text">
+                  {msg.role === 'assistant' ? (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  ) : (
+                    msg.content
+                  )}
+                </div>
                 {msg.timestamp && (
                   <div className="message-timestamp">
                     {formatTimestamp(msg.timestamp)}
@@ -157,6 +280,11 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
           ))}
           {loading && (
             <div className="message assistant">
+              <img 
+                src="/ai-icon.png" 
+                alt="AI Assistant" 
+                className="message-avatar" 
+              />
               <div className="message-content">
                 <div className="message-text thinking">
                   <span className="typing-indicator">

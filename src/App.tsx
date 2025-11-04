@@ -3,6 +3,7 @@ import { ThreadSidebar } from './components/ThreadSidebar';
 import { ChatInterface } from './components/ChatInterface';
 import { ErrorNotification } from './components/ErrorNotification';
 import { api, ApiError } from './services/api';
+import { storage } from './services/storage';
 import './App.css';
 
 function App() {
@@ -36,6 +37,8 @@ function App() {
     try {
       const thread = await api.createThread();
       setCurrentThreadId(thread.thread_id);
+      // Save to localStorage
+      storage.addOrUpdateThread(thread);
     } catch (err) {
       if (err instanceof ApiError) {
         showError(`Failed to create thread: ${err.detail}`);

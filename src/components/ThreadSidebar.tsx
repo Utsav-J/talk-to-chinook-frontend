@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { ThreadInfo } from '../types/api';
 import { api, ApiError } from '../services/api';
+import { storage } from '../services/storage';
 import './ThreadSidebar.css';
 
 interface ThreadSidebarProps {
@@ -20,17 +21,42 @@ export function ThreadSidebar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadThreads = async () => {
-    setLoading(true);
+  const loadThreads = async (useCache = true) => {
+    // Load from cache first for instant display
+    if (useCache) {
+      const cachedThreads = storage.getThreads();
+      if (cachedThreads.length > 0) {
+        setThreads(cachedThreads);
+        setLoading(false);
+      }
+    }
+
+    // Then sync with API (only show loading if we didn't have cache)
+    if (!useCache || threads.length === 0) {
+      setLoading(true);
+    }
     setError(null);
+    
     try {
       const data = await api.listThreads(50, 0);
       setThreads(data.threads);
+      // Save to localStorage
+      storage.saveThreads(data.threads);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.detail);
+        // If API fails but we have cached data, keep showing it
+        const cachedThreads = storage.getThreads();
+        if (cachedThreads.length > 0 && threads.length === 0) {
+          setThreads(cachedThreads);
+        }
       } else {
         setError('Failed to load threads');
+        // Fallback to cache if available
+        const cachedThreads = storage.getThreads();
+        if (cachedThreads.length > 0 && threads.length === 0) {
+          setThreads(cachedThreads);
+        }
       }
     } finally {
       setLoading(false);
@@ -38,15 +64,28 @@ export function ThreadSidebar({
   };
 
   useEffect(() => {
-    loadThreads();
+    // Load from cache first, then sync with API
+    loadThreads(true);
     
     const handleThreadCreated = () => {
-      loadThreads();
+      loadThreads(false); // Force API sync
+    };
+    
+    const handleThreadUpdated = () => {
+      // Reload threads from cache to get updated titles
+      const cachedThreads = storage.getThreads();
+      if (cachedThreads.length > 0) {
+        setThreads(cachedThreads);
+      }
+      // Also sync with API in background
+      loadThreads(false);
     };
     
     window.addEventListener('threadCreated', handleThreadCreated);
+    window.addEventListener('threadUpdated', handleThreadUpdated);
     return () => {
       window.removeEventListener('threadCreated', handleThreadCreated);
+      window.removeEventListener('threadUpdated', handleThreadUpdated);
     };
   }, []);
 
@@ -56,11 +95,19 @@ export function ThreadSidebar({
       return;
     }
 
+    // Optimistically remove from UI
+    const updatedThreads = threads.filter(t => t.thread_id !== threadId);
+    setThreads(updatedThreads);
+    storage.removeThread(threadId);
+    onThreadDeleted(threadId);
+
+    // Then sync with API
     try {
       await api.deleteThread(threadId);
-      setThreads(threads.filter(t => t.thread_id !== threadId));
-      onThreadDeleted(threadId);
     } catch (err) {
+      // Revert on error
+      setThreads(threads);
+      loadThreads(false);
       if (err instanceof ApiError) {
         alert(`Failed to delete thread: ${err.detail}`);
       } else {
@@ -88,7 +135,10 @@ export function ThreadSidebar({
   return (
     <div className="thread-sidebar">
       <div className="sidebar-header">
-        <h2>Conversations</h2>
+        <div className="sidebar-logo">
+          <img src="/ai-icon.png" alt="AI Assistant" className="logo-icon" />
+          <h2>Conversations</h2>
+        </div>
         <button className="new-thread-btn" onClick={onThreadCreate}>
           + New
         </button>
@@ -127,9 +177,6 @@ export function ThreadSidebar({
                     {thread.title || 'New Conversation'}
                   </h3>
                   <div className="thread-meta">
-                    <span className="thread-message-count">
-                      {thread.message_count || 0} messages
-                    </span>
                     <span className="thread-date">
                       {formatDate(thread.last_activity)}
                     </span>

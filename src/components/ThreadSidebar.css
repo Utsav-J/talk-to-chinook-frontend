@@ -17,6 +17,18 @@
   background: white;
 }
 
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
 .sidebar-header h2 {
   margin: 0;
   font-size: 20px;
