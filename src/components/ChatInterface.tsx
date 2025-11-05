@@ -53,6 +53,10 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   const speechAccumRef = useRef<string>('');
   const speechBaseInputRef = useRef<string>('');
   const [speechInterim, setSpeechInterim] = useState('');
+  // Track whether current input has been composed via voice
+  const inputComposedByVoiceRef = useRef<boolean>(false);
+  // When true at submit time, auto-speak the next assistant response
+  const autoSpeakNextAssistantRef = useRef<boolean>(false);
 
   // TTS state
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -257,6 +261,12 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         // Update thread title after adding messages
         const allMessages = storage.getMessages(finalThreadId);
         updateThreadTitle(finalThreadId, allMessages);
+
+        // Auto TTS if the user message was voice-composed
+        if (autoSpeakNextAssistantRef.current) {
+          autoSpeakNextAssistantRef.current = false;
+          speakText(assistantMessage.id || null, assistantMessage.content);
+        }
       }
     } catch (err) {
       // Remove the user message if sending failed
@@ -291,6 +301,10 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     if (!input.trim() || loading) return;
     
     const messageText = input.trim();
+    // If input was composed via voice, auto-speak the next assistant response
+    autoSpeakNextAssistantRef.current = inputComposedByVoiceRef.current;
+    // Reset the composition flag now that we're submitting
+    inputComposedByVoiceRef.current = false;
     let threadIdToUse = threadId;
     
     // If no threadId, create thread first and immediately navigate to chat view
@@ -363,8 +377,12 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
           const combined = base && acc ? `${base} ${acc}` : `${base}${acc}`;
           setInput(combined);
           setSpeechInterim('');
+          inputComposedByVoiceRef.current = true;
         } else {
           setSpeechInterim(interimTranscript);
+          if (interimTranscript) {
+            inputComposedByVoiceRef.current = true;
+          }
         }
       };
 
@@ -554,7 +572,10 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
                   ref={inputRef as React.RefObject<HTMLTextAreaElement>}
                   className={`welcome-input ${isRecording ? 'with-overlay' : ''}`}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    inputComposedByVoiceRef.current = false;
+                    setInput(e.target.value);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -701,7 +722,10 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
               ref={inputRef as React.RefObject<HTMLTextAreaElement>}
               className={`chat-input ${isRecording ? 'with-overlay' : ''}`}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                inputComposedByVoiceRef.current = false;
+                setInput(e.target.value);
+              }}
               onKeyDown={handleKeyDown}
               placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
               rows={1}
