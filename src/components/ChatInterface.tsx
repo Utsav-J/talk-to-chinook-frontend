@@ -54,6 +54,11 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   const speechBaseInputRef = useRef<string>('');
   const [speechInterim, setSpeechInterim] = useState('');
 
+  // TTS state
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | number | null>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+
   // Minimal type shim for SpeechRecognition (for TS without DOM lib augmentations)
   type SpeechRecognitionConstructor = new () => SpeechRecognition;
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -108,6 +113,21 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
   useEffect(() => {
     setSpeechSupported(Boolean(_SpeechRecognitionCtor));
+  }, []);
+
+  // Cleanup TTS on unmount
+  useEffect(() => {
+    return () => {
+      if (ttsAudioRef.current) {
+        try {
+          ttsAudioRef.current.pause();
+          ttsAudioRef.current.currentTime = 0;
+        } catch {}
+        ttsAudioRef.current = null;
+      }
+      setIsSpeaking(false);
+      setSpeakingMessageId(null);
+    };
   }, []);
 
   // Keyboard shortcuts: 'V' to start voice input, 'P' to stop while recording
@@ -389,6 +409,69 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     setIsRecording(false);
   };
 
+  // TTS controls using Puter.js
+  const stopTTS = () => {
+    const audio = ttsAudioRef.current;
+    if (audio) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch {}
+      ttsAudioRef.current = null;
+    }
+    setIsSpeaking(false);
+    setSpeakingMessageId(null);
+  };
+
+  const speakText = async (messageId: string | number | null, text: string) => {
+    if (!text || !text.trim()) return;
+    try {
+      // Stop any ongoing playback first
+      stopTTS();
+
+      const puter = (window as any).puter;
+      if (!puter || !puter.ai || !puter.ai.txt2speech) {
+        onError?.('Text-to-Speech not available. Ensure Puter.js is loaded.');
+        return;
+      }
+
+      setSpeakingMessageId(messageId);
+      setIsSpeaking(true);
+
+      const audio: HTMLAudioElement = await puter.ai.txt2speech(text);
+      ttsAudioRef.current = audio;
+
+      const handleEnded = () => {
+        setIsSpeaking(false);
+        setSpeakingMessageId(null);
+        if (ttsAudioRef.current === audio) {
+          ttsAudioRef.current = null;
+        }
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('pause', handlePause);
+        audio.removeEventListener('error', handleError);
+      };
+      const handlePause = () => {
+        // If paused because of stopTTS, state already updated there
+      };
+      const handleError = () => {
+        setIsSpeaking(false);
+        setSpeakingMessageId(null);
+        onError?.('Failed to play audio.');
+      };
+
+      audio.addEventListener('ended', handleEnded);
+      audio.addEventListener('pause', handlePause);
+      audio.addEventListener('error', handleError);
+
+      await audio.play();
+    } catch (e) {
+      setIsSpeaking(false);
+      setSpeakingMessageId(null);
+      onError?.('Failed to start text-to-speech.');
+    }
+  };
+
   const toggleRecording = () => {
     if (!speechSupported) {
       onError?.('Speech recognition is not supported in this browser.');
@@ -563,6 +646,22 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
                     {formatTimestamp(msg.timestamp)}
                   </div>
                 )}
+                {msg.role === 'assistant' && msg.content?.trim() && (
+                  <div className="tts-controls">
+                    <button
+                      type="button"
+                      className={`tts-button ${isSpeaking && (speakingMessageId === (msg.id || idx)) ? 'speaking' : ''}`}
+                      onClick={() => speakText(msg.id || idx, msg.content)}
+                      aria-label="Speak message"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        <path d="M11 5l6 4-6 4V5z"/>
+                        <path d="M4 19a9 9 0 0 0 0-14"/>
+                      </svg>
+                      <span>{isSpeaking && (speakingMessageId === (msg.id || idx)) ? 'Speaking…' : 'Speak'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -672,6 +771,23 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
           </button>
         </div>
       </form>
+
+      {isSpeaking && (
+        <div className="tts-stop-overlay">
+          <button
+            type="button"
+            className="tts-stop-button"
+            onClick={stopTTS}
+            aria-label="Stop dictation"
+            title="Stop dictation"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2" ry="2"/>
+            </svg>
+            <span>Stop</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
