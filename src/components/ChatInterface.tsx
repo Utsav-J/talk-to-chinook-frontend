@@ -110,6 +110,29 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     setSpeechSupported(Boolean(_SpeechRecognitionCtor));
   }, []);
 
+  // Keyboard shortcuts: 'V' to start voice input, 'P' to stop while recording
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const active = document.activeElement as HTMLElement | null;
+      const isTyping = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (isTyping) return;
+      if (!speechSupported || loading) return;
+
+      const key = e.key;
+      if (!isRecording && (key === 'v' || key === 'V')) {
+        e.preventDefault();
+        startRecording();
+      } else if (isRecording && (key === 'p' || key === 'P')) {
+        e.preventDefault();
+        stopRecording();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isRecording, speechSupported, loading]);
+
   // Resize textarea to fit content whenever input changes
   const resizeActiveTextarea = () => {
     const el = inputRef.current as HTMLTextAreaElement | null;
@@ -350,6 +373,16 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   const stopRecording = () => {
     const recognition = recognitionRef.current as SpeechRecognition | null;
     if (recognition) {
+      // When stopping, commit any interim transcript as final into the input
+      const base = speechBaseInputRef.current.trimEnd();
+      const acc = speechAccumRef.current.trim();
+      const interim = speechInterim.trim();
+      const spoken = [acc, interim].filter(Boolean).join(' ').trim();
+      const combined = base && spoken ? `${base} ${spoken}` : `${base}${spoken}`;
+      if (combined) {
+        setInput(combined);
+      }
+      setSpeechInterim('');
       recognition.onresult = null as unknown as (ev: Event) => void;
       try { recognition.stop(); } catch {}
     }
