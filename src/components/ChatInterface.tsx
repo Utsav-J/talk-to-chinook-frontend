@@ -1,10 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Message } from '../types/api';
-import { api, ApiError } from '../services/api';
+import { api } from '../services/api';
 import { storage } from '../services/storage';
 import { generateThreadTitle } from '../utils/threadTitle';
 import './ChatInterface.css';
+
+// Lightweight runtime-safe aliases for SpeechRecognition types in environments without lib.dom
+// These keep TypeScript happy without requiring global DOM lib augmentation.
+// They intentionally use 'any' to avoid narrowing runtime behaviors.
+type SpeechRecognition = any;
+type SpeechRecognitionEvent = any;
+type SpeechRecognitionErrorEvent = any;
+
+const isApiError = (err: unknown): err is { detail?: string } => {
+  return typeof err === 'object' && err !== null && 'detail' in (err as Record<string, unknown>);
+};
 
 interface ChatInterfaceProps {
   threadId: string | null;
@@ -36,6 +47,18 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
   const [loadingMessages, setLoadingMessages] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState<boolean>(false);
+  const speechAccumRef = useRef<string>('');
+  const speechBaseInputRef = useRef<string>('');
+  const [speechInterim, setSpeechInterim] = useState('');
+
+  // Minimal type shim for SpeechRecognition (for TS without DOM lib augmentations)
+  type SpeechRecognitionConstructor = new () => SpeechRecognition;
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - allow vendor-prefixed property runtime check
+  const _SpeechRecognitionCtor: SpeechRecognitionConstructor | undefined = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -83,6 +106,23 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     }
   }, [threadId]);
 
+  useEffect(() => {
+    setSpeechSupported(Boolean(_SpeechRecognitionCtor));
+  }, []);
+
+  // Resize textarea to fit content whenever input changes
+  const resizeActiveTextarea = () => {
+    const el = inputRef.current as HTMLTextAreaElement | null;
+    if (!el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    const maxHeight = 240; // px, cap growth for usability
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  };
+
+  useEffect(() => {
+    resizeActiveTextarea();
+  }, [input]);
+
   const loadMessages = async (tid: string) => {
     setLoadingMessages(true);
     try {
@@ -94,7 +134,7 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
       // Update thread title based on messages
       updateThreadTitle(tid, data.messages);
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (isApiError(err)) {
         const errorMsg = `Failed to load messages: ${err.detail}`;
         console.error(errorMsg);
         // If API fails, try to use cached messages if we don't have any
@@ -192,7 +232,7 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         return updated;
       });
       
-      if (err instanceof ApiError) {
+      if (isApiError(err)) {
         throw new Error(err.detail || 'Failed to send message');
       } else {
         throw new Error('Failed to send message. Please try again.');
@@ -225,7 +265,7 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         await new Promise(resolve => setTimeout(resolve, 0));
       } catch (err) {
         setLoading(false);
-        const errorMessage = err instanceof ApiError 
+        const errorMessage = isApiError(err) 
           ? (err.detail || 'Failed to create thread')
           : 'Failed to create thread. Please try again.';
         onError?.(errorMessage);
@@ -246,6 +286,85 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const startRecording = () => {
+    if (!_SpeechRecognitionCtor || isRecording) return;
+    try {
+      // Initialize buffers so that only final results are shown
+      speechBaseInputRef.current = input;
+      speechAccumRef.current = '';
+      const recognition = new _SpeechRecognitionCtor();
+      recognitionRef.current = recognition;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || 'en-US';
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        if (finalTranscript) {
+          speechAccumRef.current += finalTranscript;
+          const base = speechBaseInputRef.current.trimEnd();
+          const acc = speechAccumRef.current.trimStart();
+          const combined = base && acc ? `${base} ${acc}` : `${base}${acc}`;
+          setInput(combined);
+          setSpeechInterim('');
+        } else {
+          setSpeechInterim(interimTranscript);
+        }
+      };
+
+      recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+        setIsRecording(false);
+        if (e.error !== 'no-speech') {
+          onError?.(`Speech recognition error: ${e.error}`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+        // Clear interim state on end (finals have already been applied)
+        speechAccumRef.current = speechAccumRef.current.trim();
+        setSpeechInterim('');
+      };
+
+      recognition.start();
+      setIsRecording(true);
+    } catch (err) {
+      setIsRecording(false);
+      onError?.('Unable to start speech recognition.');
+    }
+  };
+
+  const stopRecording = () => {
+    const recognition = recognitionRef.current as SpeechRecognition | null;
+    if (recognition) {
+      recognition.onresult = null as unknown as (ev: Event) => void;
+      try { recognition.stop(); } catch {}
+    }
+    setIsRecording(false);
+  };
+
+  const toggleRecording = () => {
+    if (!speechSupported) {
+      onError?.('Speech recognition is not supported in this browser.');
+      return;
+    }
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
     }
   };
 
@@ -308,21 +427,51 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
           <div className="welcome-input-container">
             <form className="welcome-input-form" onSubmit={handleSubmit}>
-              <input
-                ref={inputRef as React.RefObject<HTMLInputElement>}
-                type="text"
-                className="welcome-input"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-                placeholder="Ask something..."
+              <div className="input-wrapper">
+                {isRecording && (
+                  <div className="input-ghost">
+                    <span className="ghost-final">{input}</span>
+                    {speechInterim && <span className="ghost-interim"> {speechInterim}</span>}
+                  </div>
+                )}
+                <textarea
+                  ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+                  className={`welcome-input ${isRecording ? 'with-overlay' : ''}`}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                  placeholder="Ask something..."
+                  disabled={loading}
+                  rows={1}
+                />
+              </div>
+              <button
+                type="button"
+                className={`mic-button ${isRecording ? 'recording' : ''}`}
+                onClick={toggleRecording}
+                aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+                title={speechSupported ? (isRecording ? 'Stop recording' : 'Start recording') : 'Speech not supported in this browser'}
                 disabled={loading}
-              />
+              >
+                {isRecording ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <rect x="7" y="7" width="10" height="10" rx="2" ry="2"/>
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3z"/>
+                    <path d="M19 11a7 7 0 0 1-14 0"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                )}
+                <span className="mic-pulse" aria-hidden="true"></span>
+              </button>
               <button
                 type="submit"
                 className="welcome-send-button"
@@ -409,26 +558,63 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
 
       <form className="chat-input-form" onSubmit={handleSubmit}>
         <div className="input-container">
-          <textarea
-            ref={inputRef}
-            className="chat-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
-            rows={1}
+          <div className="input-wrapper">
+            {isRecording && (
+              <div className="input-ghost">
+                <span className="ghost-final">{input}</span>
+                {speechInterim && <span className="ghost-interim"> {speechInterim}</span>}
+              </div>
+            )}
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              className={`chat-input ${isRecording ? 'with-overlay' : ''}`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
+              rows={1}
+              disabled={loading}
+              
+            />
+          </div>
+          <button
+            type="button"
+            className={`mic-button ${isRecording ? 'recording' : ''}`}
+            onClick={toggleRecording}
+            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            title={speechSupported ? (isRecording ? 'Stop recording' : 'Start recording') : 'Speech not supported in this browser'}
             disabled={loading}
-            style={{
-              minHeight: '24px',
-              maxHeight: '120px',
-              height: 'auto',
-            }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = 'auto';
-              target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-            }}
-          />
+          >
+          {isRecording ? (
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <rect x="7" y="7" width="10" height="10" rx="2" ry="2"/>
+            </svg>
+          ) : (
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3z"/>
+              <path d="M19 11a7 7 0 0 1-14 0"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          )}
+            <span className="mic-pulse" aria-hidden="true"></span>
+          </button>
           <button
             type="submit"
             className="send-button"
@@ -456,4 +642,5 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
     </div>
   );
 }
+
 

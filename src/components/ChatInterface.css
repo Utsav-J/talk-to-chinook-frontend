@@ -121,6 +121,7 @@
   gap: 12px;
   max-width: 600px;
   margin: 0 auto;
+  align-items: stretch;
 }
 
 .welcome-input {
@@ -133,6 +134,13 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: 56px;
+  height: 100%;
+}
+
+.welcome-input.with-overlay {
+  color: transparent;
+  caret-color: var(--text-primary);
 }
 
 .welcome-input:focus {
@@ -195,6 +203,13 @@
   background: var(--bg-primary);
   min-height: 0;
   box-sizing: border-box;
+  /* Hide scrollbar but keep scrolling */
+  -ms-overflow-style: none; /* IE and old Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+.messages-container::-webkit-scrollbar {
+  display: none; /* Chrome, Safari */
 }
 
 .messages {
@@ -269,10 +284,6 @@
   font-size: 15px;
 }
 
-/* Markdown styling for assistant messages */
-.message.assistant .message-text {
-  /* Paragraphs */
-}
 
 .message.assistant .message-text p {
   margin: 0 0 8px 0;
@@ -510,7 +521,37 @@
   margin: 0 auto;
   display: flex;
   gap: 12px;
-  align-items: flex-end;
+  align-items: stretch;
+}
+
+.input-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+
+.input-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 18px; /* match .chat-input padding */
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.ghost-final {
+  font-weight: 600;
+}
+
+.ghost-interim {
+  color: var(--text-quaternary);
+  font-weight: 500;
 }
 
 .chat-input {
@@ -525,6 +566,13 @@
   transition: border-color 0.2s, box-shadow 0.2s;
   background: var(--bg-primary);
   color: var(--text-primary);
+  min-height: 56px;
+  height: 100%;
+}
+
+.chat-input.with-overlay {
+  color: transparent;
+  caret-color: var(--text-primary);
 }
 
 .chat-input:focus {
@@ -576,5 +624,92 @@
   width: 16px;
   height: 16px;
   border-width: 2px;
+}
+
+/* Microphone button */
+.mic-button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-radius: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
+  flex-shrink: 0;
+}
+
+.mic-button:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: #9c27b0;
+}
+
+.mic-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.mic-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mic-button.recording {
+  background: rgba(156, 39, 176, 0.1);
+  border-color: #9c27b0;
+  color: #9c27b0;
+}
+
+.mic-button .mic-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.mic-button.recording .mic-pulse {
+  opacity: 1;
+  animation: micPulse 1.2s ease-out infinite;
+  box-shadow: 0 0 0 0 rgba(156, 39, 176, 0.5);
+}
+
+@keyframes micPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(156, 39, 176, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(156, 39, 176, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(156, 39, 176, 0);
+  }
+}
+
+/* Welcome form mic alignment */
+.welcome-input-form .mic-button {
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+}
+
+@media (max-width: 520px) {
+  .input-container {
+    gap: 8px;
+  }
+  .mic-button,
+  .send-button,
+  .welcome-send-button {
+    width: 48px;
+    height: 48px;
+  }
+  .welcome-input,
+  .chat-input {
+    min-height: 48px;
+  }
 }
 
