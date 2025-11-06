@@ -1,8 +1,9 @@
 # Chinook Data Speech Agent - Frontend Application
 
 
-https://github.com/user-attachments/assets/1a806028-80b1-4490-af64-c0d04d7752b5
+![Video Demo](https://github.com/user-attachments/assets/1a806028-80b1-4490-af64-c0d04d7752b5)
 
+https://github.com/user-attachments/assets/1a806028-80b1-4490-af64-c0d04d7752b5
 
 ## Executive Summary
 
