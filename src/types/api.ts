@@ -15,11 +15,25 @@ export interface ThreadListResponse {
   offset: number;
 }
 
+export interface ToolCallInfo {
+  tool_name: string;
+  args: Record<string, any>;
+  tool_call_id: string;
+  output: string | null;
+}
+
+export interface AgentDebugInfo {
+  step_count: number;
+  tool_calls: ToolCallInfo[];
+  model_name: string | null;
+}
+
 export interface Message {
   id: string | null;
   role: 'user' | 'assistant' | 'tool' | 'unknown';
   content: string;
   timestamp: string | null;
+  debug_info?: AgentDebugInfo | null;
 }
 
 export interface MessagesResponse {
@@ -40,6 +54,7 @@ export interface ChatResponse {
   thread_id: string;
   message_id: string | null;
   timestamp: string | null;
+  debug_info: AgentDebugInfo | null;
 }
 
 export interface HealthResponse {

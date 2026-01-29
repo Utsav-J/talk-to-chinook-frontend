@@ -772,3 +772,105 @@
   }
 }
 
+
+/* Debug Info Styles */
+.debug-info-container {
+  margin-top: 12px;
+  font-size: 13px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+}
+
+.debug-details summary {
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  user-select: none;
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.debug-details summary:hover {
+  color: var(--text-secondary);
+}
+
+.debug-content {
+  margin-top: 8px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.debug-meta {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.debug-separator {
+  margin: 0 8px;
+  color: var(--text-tertiary);
+}
+
+.debug-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+.debug-tools-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  margin-top: 12px;
+}
+
+.debug-tools-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.debug-tool-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.debug-tool-item:last-child {
+  margin-bottom: 0;
+}
+
+.debug-tool-name {
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--primary-color);
+  background: rgba(156, 39, 176, 0.1); 
+  /* Fallback or specific color - --primary-rgb is not defined in index.css, using focus-ring color variable logic or similar */
+  background: var(--focus-ring);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+.debug-tool-args,
+.debug-tool-output {
+  margin-top: 4px;
+}
+
+.debug-tool-args pre,
+.debug-tool-output pre {
+  margin: 4px 0 0 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: monospace;
+  font-size: 12px;
+  background: var(--code-bg);
+  padding: 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  border: 1px solid var(--code-border);
+}

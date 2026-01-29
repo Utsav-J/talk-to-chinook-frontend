@@ -250,6 +250,7 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
         role: 'assistant',
         content: response.response,
         timestamp: response.timestamp,
+        debug_info: response.debug_info,
       };
 
       // Only add assistant message if it has content
@@ -681,6 +682,40 @@ export function ChatInterface({ threadId, onThreadCreated, onError }: ChatInterf
                       </svg>
                       <span>{isSpeaking && (speakingMessageId === (msg.id || idx)) ? 'Speaking…' : 'Speak'}</span>
                     </button>
+                  </div>
+                )}
+                {msg.role === 'assistant' && msg.debug_info && (
+                  <div className="debug-info-container">
+                    <details className="debug-details">
+                      <summary>Debug Details</summary>
+                      <div className="debug-content">
+                        <div className="debug-meta">
+                          <span className="debug-label">Model:</span> {msg.debug_info.model_name || 'Unknown'}
+                          <span className="debug-separator">|</span>
+                          <span className="debug-label">Steps:</span> {msg.debug_info.step_count}
+                        </div>
+                        {msg.debug_info.tool_calls && msg.debug_info.tool_calls.length > 0 && (
+                          <div className="debug-tools">
+                            <div className="debug-tools-header">Tool Execution:</div>
+                            <ul className="debug-tools-list">
+                              {msg.debug_info.tool_calls.map((tool, toolIdx) => (
+                                <li key={toolIdx} className="debug-tool-item">
+                                  <div className="debug-tool-name">{tool.tool_name}</div>
+                                  <div className="debug-tool-args">
+                                    <span className="debug-label">Args:</span> 
+                                    <pre>{JSON.stringify(tool.args, null, 2)}</pre>
+                                  </div>
+                                  <div className="debug-tool-output">
+                                    <span className="debug-label">Output:</span>
+                                    <pre>{tool.output || '(No output)'}</pre>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </details>
                   </div>
                 )}
               </div>

@@ -2,12 +2,6 @@
 
 Complete API reference for frontend developers integrating with the Chinook Data Speech Agent backend.
 
-## Base URL
-
-```
-Development: http://localhost:8000
-Production: [Your production URL]
-```
 
 ## Authentication
 
@@ -267,12 +261,40 @@ Send a message to the agent and get a response. The agent will process the messa
   "response": "Hello Frank! How can I help you today?",
   "thread_id": "550e8400-e29b-41d4-a716-446655440000",
   "message_id": "msg-124",
-  "timestamp": "2024-01-15T10:30:05.000Z"
+  "timestamp": "2024-01-15T10:30:05.000Z",
+  "debug_info": {
+    "step_count": 2,
+    "tool_calls": [
+      {
+        "tool_name": "update_user_name",
+        "args": {
+          "new_first_name": "Frank",
+          "new_last_name": "Harris"
+        },
+        "tool_call_id": "call_12345",
+        "output": "Updated user name to Frank Harris."
+      }
+    ],
+    "model_name": "gemini-2.5-flash"
+  }
 }
 ```
 
 **TypeScript Interface:**
 ```typescript
+interface ToolCallInfo {
+  tool_name: string;
+  args: Record<string, any>;
+  tool_call_id: string;
+  output: string | null;
+}
+
+interface AgentDebugInfo {
+  step_count: number;
+  tool_calls: ToolCallInfo[];
+  model_name: string | null;
+}
+
 interface ChatRequest {
   message: string;
   thread_id?: string;
@@ -283,6 +305,7 @@ interface ChatResponse {
   thread_id: string;
   message_id: string | null;
   timestamp: string | null;  // ISO 8601 format
+  debug_info: AgentDebugInfo | null;
 }
 ```
 
@@ -301,6 +324,12 @@ const data = await response.json();
 console.log(`Agent: ${data.response}`);
 console.log(`Thread ID: ${data.thread_id}`);
 console.log(`Timestamp: ${data.timestamp}`);
+if (data.debug_info) {
+  console.log(`Steps taken: ${data.debug_info.step_count}`);
+  data.debug_info.tool_calls.forEach(tool => {
+      console.log(`Used Tool: ${tool.tool_name} with args: ${JSON.stringify(tool.args)}`);
+  });
+}
 ```
 
 **Important Notes:**
@@ -960,6 +989,3 @@ interface HealthResponse {
 ```
 
 ---
-
-**Last Updated:** 2024-01-15  
-**API Version:** 1.0.0
