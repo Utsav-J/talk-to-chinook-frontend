@@ -1,5 +1,10 @@
 # Chinook Data Speech Agent - Frontend Application
 
+
+![Video Demo](https://github.com/user-attachments/assets/1a806028-80b1-4490-af64-c0d04d7752b5)
+
+https://github.com/user-attachments/assets/1a806028-80b1-4490-af64-c0d04d7752b5
+
 ## Executive Summary
 
 The Chinook Data Speech Agent Frontend is a modern, voice-enabled web application that provides an intuitive interface for querying and analyzing the Chinook music database through natural language conversations. Built with React 19 and TypeScript, this application distinguishes itself through comprehensive speech-to-text and text-to-speech capabilities, enabling users to interact with the database using voice commands and receive audio responses. The application serves as a bridge between users and an AI-powered SQL agent backend, making database queries accessible through conversational interfaces enhanced by advanced speech recognition and synthesis technologies.
